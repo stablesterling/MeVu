@@ -7,3 +7,4 @@ tqdm
 ffmpeg-python
 pytube
 pygame
+flask
