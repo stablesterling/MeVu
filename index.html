@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VoFo Music Player 🎶</title>
+  <style>
+    body {
+      font-family: "Poppins", sans-serif;
+      background: linear-gradient(135deg, #141e30, #243b55);
+      color: white;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      min-height: 100vh;
+      padding: 40px 20px;
+    }
+
+    h1 {
+      font-size: 2em;
+      margin-bottom: 15px;
+      text-align: center;
+    }
+
+    #search-box {
+      display: flex;
+      width: 100%;
+      max-width: 500px;
+      margin-bottom: 30px;
+      background: white;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    #search-input {
+      flex: 1;
+      border: none;
+      padding: 12px 15px;
+      font-size: 1em;
+      outline: none;
+    }
+
+    #search-btn {
+      background: #ff4757;
+      border: none;
+      padding: 12px 20px;
+      color: white;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+
+    #search-btn:hover {
+      background: #e84118;
+    }
+
+    #results {
+      width: 100%;
+      max-width: 600px;
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+
+    .song {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 15px;
+      border-radius: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: 0.2s;
+    }
+
+    .song:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    .song-title {
+      flex: 1;
+      font-size: 1em;
+      margin-right: 10px;
+    }
+
+    .play-btn {
+      background: #1e90ff;
+      border: none;
+      padding: 8px 15px;
+      border-radius: 8px;
+      color: white;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+
+    .play-btn:hover {
+      background: #0f78d1;
+    }
+
+    audio {
+      margin-top: 25px;
+      width: 100%;
+      max-width: 500px;
+      outline: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎧 VoFo Music Player</h1>
+  <div id="search-box">
+    <input id="search-input" type="text" placeholder="Search a song or artist..." />
+    <button id="search-btn">Search</button>
+  </div>
+
+  <div id="results"></div>
+
+  <audio id="player" controls></audio>
+
+  <script>
+    const searchBtn = document.getElementById("search-btn");
+    const searchInput = document.getElementById("search-input");
+    const resultsDiv = document.getElementById("results");
+    const player = document.getElementById("player");
+
+    async function searchMusic() {
+      const query = searchInput.value.trim();
+      if (!query) return alert("Enter a song name!");
+
+      resultsDiv.innerHTML = "<p>🔍 Searching...</p>";
+
+      try {
+        const res = await fetch(`/search?q=${encodeURIComponent(query)}`);
+        const data = await res.json();
+
+        if (!data.length) {
+          resultsDiv.innerHTML = "<p>⚠️ No results found.</p>";
+          return;
+        }
+
+        resultsDiv.innerHTML = "";
+        data.forEach((song) => {
+          const div = document.createElement("div");
+          div.className = "song";
+          div.innerHTML = `
+            <span class="song-title">${song.title}</span>
+            <button class="play-btn" onclick="playSong('${song.id}', '${song.title.replace(/'/g, "\\'")}')">▶ Play</button>
+          `;
+          resultsDiv.appendChild(div);
+        });
+      } catch (err) {
+        console.error(err);
+        resultsDiv.innerHTML = "<p>❌ Failed to fetch songs.</p>";
+      }
+    }
+
+    async function playSong(videoId, title) {
+      try {
+        const res = await fetch(`/api/stream/${videoId}`);
+        const data = await res.json();
+
+        if (data.audio_url) {
+          player.src = data.audio_url;
+          player.play();
+        } else {
+          alert("❌ Failed to stream this song.");
+        }
+      } catch (err) {
+        console.error(err);
+        alert("⚠️ Error playing song.");
+      }
+    }
+
+    searchBtn.addEventListener("click", searchMusic);
+    searchInput.addEventListener("keypress", (e) => {
+      if (e.key === "Enter") searchMusic();
+    });
+  </script>
+</body>
+</html>
