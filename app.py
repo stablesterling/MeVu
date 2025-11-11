@@ -1,9 +1,9 @@
 import logging
 import os
 import threading
-import pygame
+import asyncio
 from flask import Flask, send_from_directory, request, jsonify
-from telegram import Update
+from telegram import Update, Bot
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from yt_dlp import YoutubeDL
 
@@ -17,7 +17,10 @@ os.makedirs(DOWNLOAD_PATH, exist_ok=True)
 # -----------------------
 # Logging
 # -----------------------
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
 # -----------------------
@@ -30,25 +33,13 @@ YDL_OPTS_SEARCH = {
     'default_search': 'ytsearch10',
 }
 
-YDL_OPTS_DOWNLOAD = {
-    'format': 'bestaudio/best',
-    'outtmpl': f"{DOWNLOAD_PATH}/%(title)s.%(ext)s",
-    'quiet': True,
-    'noplaylist': True,
-    'postprocessors': [{
-        'key': 'FFmpegExtractAudio',
-        'preferredcodec': 'mp3',
-        'preferredquality': '192',
-    }],
-}
-
 # -----------------------
 # Telegram Bot Handlers
 # -----------------------
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🎶 *Welcome to VoFo Music Bot!*\n\n"
-        "Send me any *song name or artist* and I’ll fetch, download, and play it automatically! 🎧",
+        "Send me any *song name or artist* and I’ll fetch and stream it for you instantly! 🎧",
         parse_mode='Markdown'
     )
 
@@ -70,30 +61,28 @@ async def handle_music_search(update: Update, context: ContextTypes.DEFAULT_TYPE
         video = results[0]
         title, url = video["title"], video["webpage_url"]
 
-        await msg.edit_text(f"🎵 Downloading: *{title}* ...", parse_mode='Markdown')
+        await msg.edit_text(f"🎵 Fetching stream for: *{title}* ...", parse_mode='Markdown')
 
-        with YoutubeDL(YDL_OPTS_DOWNLOAD) as ydl:
-            info = ydl.extract_info(url)
-            filename = ydl.prepare_filename(info).replace(".webm", ".mp3").replace(".m4a", ".mp3")
+        # Extract direct audio stream URL (no download)
+        with YoutubeDL({"format": "bestaudio", "quiet": True}) as ydl:
+            info = ydl.extract_info(url, download=False)
+            audio_url = info.get("url")
 
-        try:
-            pygame.mixer.init()
-            pygame.mixer.music.load(filename)
-            pygame.mixer.music.play()
-        except Exception:
-            logger.warning("⚠️ Server environment does not support audio playback (expected on cloud).")
+        if not audio_url:
+            await msg.edit_text("❌ Failed to get audio stream URL.")
+            return
 
         await update.message.reply_audio(
-            audio=open(filename, 'rb'),
-            caption=f"🎶 *{title}*\n\nPowered by VoFo 🎧",
+            audio=audio_url,
+            caption=f"🎶 *{title}*\n\n▶️ Streamed by VoFo",
             parse_mode='Markdown'
         )
 
-        await msg.edit_text(f"✅ Finished '{title}'")
+        await msg.edit_text(f"✅ Streaming: *{title}*", parse_mode='Markdown')
 
     except Exception as e:
         logger.error(f"Error: {e}")
-        await msg.edit_text("❌ Failed to play or send song. Try again later.")
+        await msg.edit_text("❌ Failed to play or stream song. Try again later.")
 
 # -----------------------
 # Flask Frontend + API
@@ -104,11 +93,12 @@ app = Flask(__name__, static_folder=".", static_url_path="")
 def serve_index():
     return send_from_directory(".", "index.html")
 
-@app.route("/search", methods=["GET", "POST"])
+@app.route("/search", methods=["GET"])
 def api_search():
-    query = request.args.get("q") or request.form.get("query", "")
+    query = request.args.get("q", "")
     if not query:
         return jsonify([])
+
     try:
         with YoutubeDL(YDL_OPTS_SEARCH) as ydl:
             info = ydl.extract_info(query, download=False)
@@ -128,18 +118,31 @@ def api_stream(video_id):
         logger.error(f"Stream error: {e}")
         return jsonify({"error": str(e)}), 500
 
+# -----------------------
+# Helper Functions
+# -----------------------
+async def reset_webhook(token):
+    """Delete existing Telegram webhook before polling to avoid 409 conflict"""
+    bot = Bot(token)
+    await bot.delete_webhook(drop_pending_updates=True)
+    logger.info("✅ Bot webhook/session reset")
+
 def run_flask():
+    """Run Flask app in a background thread"""
     app.run(host="0.0.0.0", port=8080)
 
 # -----------------------
 # Start Flask + Telegram
 # -----------------------
 def main():
-    # Start Flask in a background thread
+    # Reset webhook (fixes 409 Conflict)
+    asyncio.run(reset_webhook(BOT_TOKEN))
+
+    # Start Flask frontend
     threading.Thread(target=run_flask, daemon=True).start()
 
-    # Run Telegram bot in main thread
-    logger.info("🚀 Telegram bot running...")
+    # Start Telegram Bot
+    logger.info("🚀 Telegram bot running with polling...")
     app_bot = Application.builder().token(BOT_TOKEN).build()
     app_bot.add_handler(CommandHandler("start", start_command))
     app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_music_search))
