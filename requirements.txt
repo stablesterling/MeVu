@@ -1,10 +1,10 @@
 python-telegram-bot
 yt-dlp
 aiohttp
-asyncio
 requests
 tqdm
 ffmpeg-python
 pytube
 pygame
-flask
+Flask
+gunicorn
